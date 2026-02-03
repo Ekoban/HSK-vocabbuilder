@@ -555,160 +555,34 @@ function getFiltered() {
   return items;
 }
 
-// ─── Enrichment with parallel calls and activity tracking ───
-async function callEnrichAPI(words, batchIndex, retryCount = 0) {
-  const input = words.map(w => ({ w: w.chinese, p: w.pinyin || "", pos: w._pos || "", l: w.hskLevel2026 }));
-  const prompt = `For each Chinese word below, return a JSON array of objects with these exact fields:
-- w: the Chinese word (echo back exactly)
-- en: concise English translation (1-5 words)
-- fr: concise French translation (1-5 words)
-- cat: English category (noun, verb, adjective, adverb, measure word, pronoun, conjunction, preposition, particle, interjection, numeral, phrase)
-- topic: pick ONE from: greeting, family, food, drink, body, health, clothing, home, school, work, transport, shopping, money, weather, time, nature, animal, color, number, technology, sport, travel, culture, emotion, social, government, science, media, law, abstract, daily_life
-- sc: total stroke count (sum all characters)
-- freq: usage frequency 1-5 (5=extremely common, 1=rare)
-- diff: difficulty 1-5 (1=beginner, 5=advanced)
+// ─── WebSocket Enrichment with Python Backend ───
+const WS_URL = 'ws://localhost:8765';
+let enrichmentWs = null;
 
-Process these ${input.length} words:
-${JSON.stringify(input)}`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
-  try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": state.apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        system: "You are a Chinese dictionary API. Return ONLY a valid JSON array. No markdown, no explanation.",
-        messages: [{ role: "user", content: prompt }]
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-
-    // Handle rate limiting with exponential backoff
-    if (resp.status === 429) {
-      if (retryCount < 3) {
-        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-        addLogEntry('info', `Batch ${batchIndex + 1} rate limited, retrying in ${Math.round(delay/1000)}s...`, batchIndex);
-        await new Promise(r => setTimeout(r, delay));
-        return callEnrichAPI(words, batchIndex, retryCount + 1);
-      }
-      throw new Error('Rate limit exceeded after 3 retries');
+function connectWebSocket() {
+  return new Promise((resolve, reject) => {
+    if (enrichmentWs && enrichmentWs.readyState === WebSocket.OPEN) {
+      resolve(enrichmentWs);
+      return;
     }
 
-    if (!resp.ok) {
-      const errorText = await resp.text().catch(() => 'Unknown error');
-      throw new Error(`API ${resp.status}: ${errorText.slice(0, 100)}`);
-    }
+    enrichmentWs = new WebSocket(WS_URL);
 
-    const data = await resp.json();
-    const text = data.content.map(c => c.text || "").join("");
+    enrichmentWs.onopen = () => {
+      addLogEntry('info', 'Connected to Python enrichment server');
+      resolve(enrichmentWs);
+    };
 
-    // Try to parse the JSON response
-    let parsed;
-    try {
-      parsed = JSON.parse(text.replace(/```json\n?|```\n?/g, "").trim());
-    } catch (parseErr) {
-      console.error('JSON parse error:', parseErr, 'Raw text:', text.slice(0, 200));
-      throw new Error(`Invalid JSON response: ${parseErr.message}`);
-    }
+    enrichmentWs.onerror = (err) => {
+      addLogEntry('error', '<span class="error-text">Failed to connect to enrichment server. Is it running?</span>');
+      reject(new Error('WebSocket connection failed'));
+    };
 
-    // Validate response structure
-    if (!Array.isArray(parsed)) {
-      throw new Error('Response is not an array');
-    }
-
-    // Validate each item has required fields
-    const validated = [];
-    for (const item of parsed) {
-      if (item && typeof item === 'object' && item.w) {
-        validated.push({
-          w: String(item.w),
-          en: item.en || null,
-          fr: item.fr || null,
-          cat: item.cat || null,
-          topic: item.topic || null,
-          sc: typeof item.sc === 'number' ? item.sc : null,
-          freq: typeof item.freq === 'number' ? item.freq : null,
-          diff: typeof item.diff === 'number' ? item.diff : null,
-        });
-      }
-    }
-
-    return { success: true, results: validated };
-
-  } catch (err) {
-    clearTimeout(timeout);
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
-    throw err;
-  }
-}
-
-// Process a single batch with logging
-async function processBatch(batch, batchIndex, sharedState) {
-  const { newMap, newFailed, errors } = sharedState;
-  const words = batch.map(w => w.chinese).slice(0, 3).join(', ');
-
-  // Update batch status to running
-  state.batchStatuses[batchIndex] = 'running';
-  state.activeRequests++;
-  addLogEntry('start', `<span class="word">${words}</span>... (${batch.length} words)`, batchIndex);
-  renderActivityPanel();
-
-  try {
-    const { results } = await callEnrichAPI(batch, batchIndex);
-
-    // Track which words were successfully enriched
-    const enrichedWords = new Set(results.map(r => r.w));
-    let batchFailed = 0;
-
-    for (const r of results) {
-      if (r && r.w) {
-        newMap.set(r.w, r);
-        newFailed.delete(r.w);
-      }
-    }
-
-    // Track words that weren't in the response
-    for (const word of batch) {
-      if (!enrichedWords.has(word.chinese)) {
-        newFailed.add(word.chinese);
-        batchFailed++;
-      }
-    }
-
-    state.batchStatuses[batchIndex] = batchFailed > 0 ? 'partial' : 'success';
-    addLogEntry('success', `Batch ${batchIndex + 1}: <span class="count">${results.length}</span> enriched${batchFailed > 0 ? `, <span class="error-text">${batchFailed} missing</span>` : ''}`, batchIndex);
-
-    return { success: batch.length - batchFailed, failed: batchFailed };
-
-  } catch (err) {
-    console.error(`Batch ${batchIndex + 1} failed:`, err);
-    errors.push({ batch: words + '...', error: err.message });
-
-    // Mark all words in failed batch
-    for (const word of batch) {
-      newFailed.add(word.chinese);
-    }
-
-    state.batchStatuses[batchIndex] = 'error';
-    addLogEntry('error', `Batch ${batchIndex + 1}: <span class="error-text">${err.message}</span>`, batchIndex);
-
-    return { success: 0, failed: batch.length };
-  } finally {
-    state.activeRequests--;
-  }
+    enrichmentWs.onclose = () => {
+      addLogEntry('info', 'Disconnected from enrichment server');
+      enrichmentWs = null;
+    };
+  });
 }
 
 async function startEnrichment(failedOnly = false) {
@@ -722,11 +596,9 @@ async function startEnrichment(failedOnly = false) {
 
   if (toEnrich.length === 0) return;
 
-  const batches = [];
-  for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) batches.push(toEnrich.slice(i, i + BATCH_SIZE));
-
   // Initialize tracking state
-  const batchStatuses = batches.map(() => 'pending');
+  const totalBatches = Math.ceil(toEnrich.length / BATCH_SIZE);
+  const batchStatuses = Array(totalBatches).fill('pending');
 
   setState({
     enrichActive: true,
@@ -742,67 +614,114 @@ async function startEnrichment(failedOnly = false) {
     wordsPerSecond: 0
   });
 
-  addLogEntry('info', `Starting enrichment: <span class="count">${toEnrich.length}</span> words in <span class="count">${batches.length}</span> batches (${state.concurrency}x parallel)`);
+  addLogEntry('info', `Connecting to Python server for <span class="count">${toEnrich.length}</span> words...`);
 
-  const sharedState = {
-    newMap: new Map(state.enrichedMap),
-    newFailed: new Set(failedOnly ? [] : state.failedWords),
-    errors: []
-  };
+  try {
+    const ws = await connectWebSocket();
 
-  let done = 0, failed = 0;
-  let batchQueue = batches.map((batch, index) => ({ batch, index }));
-  const inFlight = new Set();
+    const newMap = new Map(state.enrichedMap);
+    const newFailed = new Set(failedOnly ? [] : state.failedWords);
+    const errors = [];
 
-  // Process batches with concurrency limit
-  while (batchQueue.length > 0 || inFlight.size > 0) {
-    if (state.cancelRequested) {
-      addLogEntry('info', 'Enrichment cancelled by user');
-      break;
-    }
+    // Set up message handler
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
 
-    // Start new batches up to concurrency limit
-    while (batchQueue.length > 0 && inFlight.size < state.concurrency) {
-      const { batch, index } = batchQueue.shift();
+      switch (msg.type) {
+        case 'start':
+          addLogEntry('info', `Server ready: <span class="count">${msg.total_batches}</span> batches, <span class="count">${msg.concurrency}</span>x parallel`);
+          state.batchStatuses = Array(msg.total_batches).fill('pending');
+          renderActivityPanel();
+          break;
 
-      const promise = processBatch(batch, index, sharedState).then(result => {
-        done += batch.length;
-        failed += result.failed;
+        case 'batch_queued':
+          state.batchStatuses[msg.batch] = 'pending';
+          renderActivityPanel();
+          break;
 
-        // Update speed calculation
-        const elapsed = (Date.now() - state.enrichStartTime) / 1000;
-        const wordsPerSecond = elapsed > 0 ? (done / elapsed).toFixed(1) : 0;
+        case 'batch_done':
+          if (msg.success) {
+            state.batchStatuses[msg.batch] = 'success';
 
-        setState({
-          enrichedMap: sharedState.newMap,
-          failedWords: sharedState.newFailed,
-          enrichDone: done,
-          enrichFailed: failed,
-          enrichErrors: sharedState.errors,
-          wordsPerSecond
-        }, true);
+            // Store enriched results
+            for (const r of msg.results) {
+              if (r && r.w) {
+                newMap.set(r.w, r);
+                newFailed.delete(r.w);
+              }
+            }
 
-        inFlight.delete(promise);
-      });
+            const words = msg.results.slice(0, 3).map(r => r.w).join(', ');
+            addLogEntry('success', `Batch ${msg.batch + 1}: <span class="count">${msg.count}</span> enriched · <span class="word">${words}</span>...`);
+          } else {
+            state.batchStatuses[msg.batch] = 'error';
+            errors.push({ batch: msg.batch, error: msg.error });
 
-      inFlight.add(promise);
-    }
+            // Mark failed words
+            if (msg.failed_words) {
+              for (const w of msg.failed_words) {
+                newFailed.add(w);
+              }
+            }
 
-    // Wait for at least one to complete
-    if (inFlight.size > 0) {
-      await Promise.race(inFlight);
-    }
+            addLogEntry('error', `Batch ${msg.batch + 1}: <span class="error-text">${msg.error}</span>`);
+          }
 
-    // Small delay to prevent tight loop
-    await new Promise(r => setTimeout(r, 50));
+          // Update progress
+          const progress = msg.progress;
+          const elapsed = progress.elapsed_ms / 1000;
+          const wordsPerSecond = elapsed > 0 ? (progress.success_words / elapsed).toFixed(1) : 0;
+
+          setState({
+            enrichedMap: newMap,
+            failedWords: newFailed,
+            enrichDone: progress.success_words + progress.failed_words,
+            enrichFailed: progress.failed_words,
+            enrichErrors: errors,
+            wordsPerSecond,
+            activeRequests: state.batchStatuses.filter(s => s === 'running').length
+          }, true);
+          break;
+
+        case 'complete':
+          addLogEntry('complete', `Finished in <span class="count">${(msg.total_time_ms / 1000).toFixed(1)}s</span> · <span class="count">${msg.success_words}</span> enriched · <span class="count">${msg.words_per_second}</span> words/sec`);
+
+          // Final state update with enrichedMap to trigger recompute
+          setState({
+            enrichActive: false,
+            wordsPerSecond: msg.words_per_second,
+            enrichedMap: newMap,
+            failedWords: newFailed,
+            enrichDone: msg.success_words + msg.failed_words,
+            enrichFailed: msg.failed_words
+          });
+          break;
+
+        case 'error':
+          addLogEntry('error', `<span class="error-text">${msg.error}</span>`);
+          break;
+      }
+    };
+
+    // Prepare word data for the server
+    const wordsData = toEnrich.map(w => ({
+      chinese: w.chinese,
+      pinyin: w.pinyin || '',
+      hskLevel2026: w.hskLevel2026
+    }));
+
+    // Send enrichment request
+    ws.send(JSON.stringify({
+      type: 'enrich',
+      words: wordsData,
+      api_key: state.apiKey
+    }));
+
+  } catch (err) {
+    console.error('Enrichment error:', err);
+    addLogEntry('error', `<span class="error-text">${err.message}</span>`);
+    setState({ enrichActive: false });
   }
-
-  const totalTime = ((Date.now() - state.enrichStartTime) / 1000).toFixed(1);
-  const finalSpeed = (done / parseFloat(totalTime)).toFixed(1);
-
-  addLogEntry('complete', `Finished in <span class="count">${totalTime}s</span> · <span class="count">${done - failed}</span> enriched · <span class="count">${finalSpeed}</span> words/sec`);
-
-  setState({ enrichActive: false, wordsPerSecond: finalSpeed });
 }
 
 // Render just the activity panel (for live updates without full re-render)
