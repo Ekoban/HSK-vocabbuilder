@@ -110,6 +110,51 @@ td { padding: 7px 12px; border-bottom: 1px solid #f5f5f5; }
 .stop-btn { background: none; border: 1px solid #ccc; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; color: #888; font-family: inherit; transition: all 0.15s; }
 .stop-btn:hover { background: #f5f5f5; border-color: #999; }
 
+/* Activity Log */
+.activity-panel { background: #1a1a1a; border-radius: 10px; margin-top: 12px; overflow: hidden; }
+.activity-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #333; }
+.activity-title { color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.activity-title .pulse { width: 8px; height: 8px; background: #43a047; border-radius: 50%; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.activity-stats { display: flex; gap: 16px; font-size: 11px; color: #888; font-family: 'DM Mono', monospace; }
+.activity-stats span { display: flex; align-items: center; gap: 4px; }
+.activity-stats .label { color: #666; }
+.activity-log { max-height: 180px; overflow-y: auto; padding: 8px 0; font-family: 'DM Mono', monospace; font-size: 11px; }
+.activity-log::-webkit-scrollbar { width: 6px; }
+.activity-log::-webkit-scrollbar-track { background: #222; }
+.activity-log::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+.log-entry { padding: 4px 14px; display: flex; align-items: center; gap: 10px; }
+.log-entry:hover { background: #222; }
+.log-time { color: #666; min-width: 65px; }
+.log-icon { width: 16px; text-align: center; }
+.log-icon.pending { color: #888; }
+.log-icon.running { color: #ffd54f; }
+.log-icon.success { color: #66bb6a; }
+.log-icon.error { color: #ef5350; }
+.log-msg { color: #ccc; flex: 1; }
+.log-msg .word { color: #90caf9; }
+.log-msg .count { color: #fff; font-weight: 500; }
+.log-msg .error-text { color: #ef5350; }
+
+/* Batch Grid */
+.batch-grid { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 14px; border-top: 1px solid #333; }
+.batch-chip { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; font-family: 'DM Mono', monospace; transition: all 0.2s; }
+.batch-chip.pending { background: #333; color: #666; }
+.batch-chip.running { background: #ffd54f; color: #1a1a1a; animation: batch-pulse 0.8s infinite; }
+@keyframes batch-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+.batch-chip.success { background: #43a047; color: #fff; }
+.batch-chip.error { background: #e53935; color: #fff; }
+.batch-chip.partial { background: linear-gradient(135deg, #43a047 50%, #e53935 50%); color: #fff; }
+
+/* Concurrency selector */
+.concurrency-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.concurrency-label { font-size: 12px; color: #888; }
+.concurrency-btns { display: flex; gap: 4px; }
+.concurrency-btn { width: 32px; height: 28px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: 'DM Mono', monospace; }
+.concurrency-btn:hover { background: #f5f5f5; }
+.concurrency-btn.active { background: #1e88e5; color: #fff; border-color: #1e88e5; }
+.concurrency-info { font-size: 11px; color: #aaa; }
+
 /* Warning/Info messages */
 .warning-banner { background: #fff3e0; border: 1px solid #ffb74d; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: #e65100; }
 .warning-banner strong { font-weight: 600; }
@@ -303,6 +348,7 @@ const posMap = {"名":"noun","动":"verb","形":"adjective","副":"adverb","数"
 
 const BATCH_SIZE = 40;
 const FETCH_TIMEOUT = 30000; // 30 seconds
+const MAX_CONCURRENCY = 5;
 
 // ─── State ───
 let state = {
@@ -325,7 +371,25 @@ let state = {
   mergeResult: null,
   duplicates: [],
   showConfirmModal: false,
+  // New: Activity tracking
+  concurrency: 3,
+  activityLog: [],
+  batchStatuses: [], // 'pending' | 'running' | 'success' | 'error' | 'partial'
+  enrichStartTime: null,
+  activeRequests: 0,
+  wordsPerSecond: 0,
 };
+
+// Activity log helper
+function addLogEntry(type, message, batchIndex = null) {
+  const entry = {
+    time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    type, // 'info' | 'start' | 'success' | 'error' | 'complete'
+    message,
+    batchIndex
+  };
+  state.activityLog = [...state.activityLog.slice(-50), entry]; // Keep last 50 entries
+}
 
 // Keep track of the last search value to restore focus
 let lastSearchValue = '';
@@ -491,8 +555,8 @@ function getFiltered() {
   return items;
 }
 
-// ─── Enrichment with improved error handling ───
-async function callEnrichAPI(words, retryCount = 0) {
+// ─── Enrichment with parallel calls and activity tracking ───
+async function callEnrichAPI(words, batchIndex, retryCount = 0) {
   const input = words.map(w => ({ w: w.chinese, p: w.pinyin || "", pos: w._pos || "", l: w.hskLevel2026 }));
   const prompt = `For each Chinese word below, return a JSON array of objects with these exact fields:
 - w: the Chinese word (echo back exactly)
@@ -534,9 +598,9 @@ ${JSON.stringify(input)}`;
     if (resp.status === 429) {
       if (retryCount < 3) {
         const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-        console.log(`Rate limited, retrying in ${Math.round(delay)}ms...`);
+        addLogEntry('info', `Batch ${batchIndex + 1} rate limited, retrying in ${Math.round(delay/1000)}s...`, batchIndex);
         await new Promise(r => setTimeout(r, delay));
-        return callEnrichAPI(words, retryCount + 1);
+        return callEnrichAPI(words, batchIndex, retryCount + 1);
       }
       throw new Error('Rate limit exceeded after 3 retries');
     }
@@ -580,7 +644,7 @@ ${JSON.stringify(input)}`;
       }
     }
 
-    return { success: true, results: validated, failed: [] };
+    return { success: true, results: validated };
 
   } catch (err) {
     clearTimeout(timeout);
@@ -588,6 +652,62 @@ ${JSON.stringify(input)}`;
       throw new Error('Request timed out');
     }
     throw err;
+  }
+}
+
+// Process a single batch with logging
+async function processBatch(batch, batchIndex, sharedState) {
+  const { newMap, newFailed, errors } = sharedState;
+  const words = batch.map(w => w.chinese).slice(0, 3).join(', ');
+
+  // Update batch status to running
+  state.batchStatuses[batchIndex] = 'running';
+  state.activeRequests++;
+  addLogEntry('start', `<span class="word">${words}</span>... (${batch.length} words)`, batchIndex);
+  renderActivityPanel();
+
+  try {
+    const { results } = await callEnrichAPI(batch, batchIndex);
+
+    // Track which words were successfully enriched
+    const enrichedWords = new Set(results.map(r => r.w));
+    let batchFailed = 0;
+
+    for (const r of results) {
+      if (r && r.w) {
+        newMap.set(r.w, r);
+        newFailed.delete(r.w);
+      }
+    }
+
+    // Track words that weren't in the response
+    for (const word of batch) {
+      if (!enrichedWords.has(word.chinese)) {
+        newFailed.add(word.chinese);
+        batchFailed++;
+      }
+    }
+
+    state.batchStatuses[batchIndex] = batchFailed > 0 ? 'partial' : 'success';
+    addLogEntry('success', `Batch ${batchIndex + 1}: <span class="count">${results.length}</span> enriched${batchFailed > 0 ? `, <span class="error-text">${batchFailed} missing</span>` : ''}`, batchIndex);
+
+    return { success: batch.length - batchFailed, failed: batchFailed };
+
+  } catch (err) {
+    console.error(`Batch ${batchIndex + 1} failed:`, err);
+    errors.push({ batch: words + '...', error: err.message });
+
+    // Mark all words in failed batch
+    for (const word of batch) {
+      newFailed.add(word.chinese);
+    }
+
+    state.batchStatuses[batchIndex] = 'error';
+    addLogEntry('error', `Batch ${batchIndex + 1}: <span class="error-text">${err.message}</span>`, batchIndex);
+
+    return { success: 0, failed: batch.length };
+  } finally {
+    state.activeRequests--;
   }
 }
 
@@ -605,71 +725,125 @@ async function startEnrichment(failedOnly = false) {
   const batches = [];
   for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) batches.push(toEnrich.slice(i, i + BATCH_SIZE));
 
+  // Initialize tracking state
+  const batchStatuses = batches.map(() => 'pending');
+
   setState({
     enrichActive: true,
     enrichTotal: toEnrich.length,
     enrichDone: 0,
     enrichFailed: 0,
     enrichErrors: [],
-    showConfirmModal: false
+    showConfirmModal: false,
+    activityLog: [],
+    batchStatuses,
+    enrichStartTime: Date.now(),
+    activeRequests: 0,
+    wordsPerSecond: 0
   });
 
-  const newMap = new Map(state.enrichedMap);
-  const newFailed = new Set(failedOnly ? [] : state.failedWords); // Clear failed set if retrying failed
+  addLogEntry('info', `Starting enrichment: <span class="count">${toEnrich.length}</span> words in <span class="count">${batches.length}</span> batches (${state.concurrency}x parallel)`);
+
+  const sharedState = {
+    newMap: new Map(state.enrichedMap),
+    newFailed: new Set(failedOnly ? [] : state.failedWords),
+    errors: []
+  };
+
   let done = 0, failed = 0;
-  const errors = [];
+  let batchQueue = batches.map((batch, index) => ({ batch, index }));
+  const inFlight = new Set();
 
-  for (const batch of batches) {
-    if (state.cancelRequested) break;
-
-    try {
-      const { results, failed: batchFailed } = await callEnrichAPI(batch);
-
-      // Track which words were successfully enriched
-      const enrichedWords = new Set(results.map(r => r.w));
-
-      for (const r of results) {
-        if (r && r.w) {
-          newMap.set(r.w, r);
-          newFailed.delete(r.w);
-        }
-      }
-
-      // Track words that weren't in the response
-      for (const word of batch) {
-        if (!enrichedWords.has(word.chinese)) {
-          newFailed.add(word.chinese);
-          failed++;
-        }
-      }
-
-      done += batch.length;
-
-    } catch (err) {
-      console.error(`Batch failed:`, err);
-      errors.push({ batch: batch.map(w => w.chinese).slice(0, 3).join(', ') + '...', error: err.message });
-
-      // Mark all words in failed batch
-      for (const word of batch) {
-        newFailed.add(word.chinese);
-      }
-      failed += batch.length;
-      done += batch.length;
+  // Process batches with concurrency limit
+  while (batchQueue.length > 0 || inFlight.size > 0) {
+    if (state.cancelRequested) {
+      addLogEntry('info', 'Enrichment cancelled by user');
+      break;
     }
 
-    setState({
-      enrichedMap: newMap,
-      failedWords: newFailed,
-      enrichDone: done,
-      enrichFailed: failed,
-      enrichErrors: errors
-    }, true);
+    // Start new batches up to concurrency limit
+    while (batchQueue.length > 0 && inFlight.size < state.concurrency) {
+      const { batch, index } = batchQueue.shift();
 
-    // Delay between batches
-    await new Promise(r => setTimeout(r, 300));
+      const promise = processBatch(batch, index, sharedState).then(result => {
+        done += batch.length;
+        failed += result.failed;
+
+        // Update speed calculation
+        const elapsed = (Date.now() - state.enrichStartTime) / 1000;
+        const wordsPerSecond = elapsed > 0 ? (done / elapsed).toFixed(1) : 0;
+
+        setState({
+          enrichedMap: sharedState.newMap,
+          failedWords: sharedState.newFailed,
+          enrichDone: done,
+          enrichFailed: failed,
+          enrichErrors: sharedState.errors,
+          wordsPerSecond
+        }, true);
+
+        inFlight.delete(promise);
+      });
+
+      inFlight.add(promise);
+    }
+
+    // Wait for at least one to complete
+    if (inFlight.size > 0) {
+      await Promise.race(inFlight);
+    }
+
+    // Small delay to prevent tight loop
+    await new Promise(r => setTimeout(r, 50));
   }
 
-  setState({ enrichActive: false });
+  const totalTime = ((Date.now() - state.enrichStartTime) / 1000).toFixed(1);
+  const finalSpeed = (done / parseFloat(totalTime)).toFixed(1);
+
+  addLogEntry('complete', `Finished in <span class="count">${totalTime}s</span> · <span class="count">${done - failed}</span> enriched · <span class="count">${finalSpeed}</span> words/sec`);
+
+  setState({ enrichActive: false, wordsPerSecond: finalSpeed });
+}
+
+// Render just the activity panel (for live updates without full re-render)
+function renderActivityPanel() {
+  const panel = document.getElementById('activity-panel');
+  if (!panel) return;
+
+  const elapsed = state.enrichStartTime ? ((Date.now() - state.enrichStartTime) / 1000).toFixed(1) : '0.0';
+
+  // Update stats
+  const statsEl = panel.querySelector('.activity-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <span><span class="label">Time:</span> ${elapsed}s</span>
+      <span><span class="label">Speed:</span> ${state.wordsPerSecond} w/s</span>
+      <span><span class="label">Active:</span> ${state.activeRequests}/${state.concurrency}</span>
+    `;
+  }
+
+  // Update log
+  const logEl = panel.querySelector('.activity-log');
+  if (logEl) {
+    logEl.innerHTML = state.activityLog.map(entry => {
+      const iconMap = { info: '●', start: '◐', success: '✓', error: '✗', complete: '★' };
+      const icon = iconMap[entry.type] || '●';
+      return `<div class="log-entry">
+        <span class="log-time">${entry.time}</span>
+        <span class="log-icon ${entry.type}">${icon}</span>
+        <span class="log-msg">${entry.message}</span>
+      </div>`;
+    }).join('');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // Update batch grid
+  const gridEl = panel.querySelector('.batch-grid');
+  if (gridEl) {
+    gridEl.innerHTML = state.batchStatuses.map((status, i) =>
+      `<div class="batch-chip ${status}" title="Batch ${i + 1}: ${status}">${i + 1}</div>`
+    ).join('');
+  }
 }
 
 // ─── File handling ───
@@ -739,6 +913,7 @@ function renderConfirmModal() {
   const unenrichedCount = mr.newWords.filter(w => !state.enrichedMap.has(w.chinese)).length;
   const batchCount = Math.ceil(unenrichedCount / BATCH_SIZE);
   const estimatedCost = (batchCount * 0.003).toFixed(3); // ~$0.003 per request estimate
+  const estimatedTime = Math.ceil(batchCount / state.concurrency) * 3; // ~3s per batch wave
 
   return `
     <div class="modal-overlay" onclick="closeModal(event)">
@@ -748,8 +923,9 @@ function renderConfirmModal() {
           <p>This will use the Anthropic API to enrich <strong>${unenrichedCount}</strong> new words.</p>
           <ul>
             <li><strong>${batchCount}</strong> API calls (${BATCH_SIZE} words/batch)</li>
+            <li><strong>${state.concurrency}x</strong> parallel requests</li>
             <li>Estimated cost: <strong>~$${estimatedCost}</strong></li>
-            <li>Estimated time: <strong>~${batchCount * 3}s</strong></li>
+            <li>Estimated time: <strong>~${estimatedTime}s</strong> ${state.concurrency > 1 ? `(${state.concurrency}x faster)` : ''}</li>
           </ul>
           <p>Fields generated: English, French, category, topic, stroke count, frequency, difficulty</p>
         </div>
@@ -862,15 +1038,47 @@ function render() {
 
     if (state.enrichActive || state.enrichDone > 0) {
       const pct = state.enrichTotal > 0 ? Math.round((state.enrichDone / state.enrichTotal) * 100) : 0;
+      const elapsed = state.enrichStartTime ? ((Date.now() - state.enrichStartTime) / 1000).toFixed(1) : '0.0';
+
       html += `<div class="progress-wrap">
         <div class="progress-header">
           <div class="progress-title">${state.enrichActive ? '✨ Enriching with Claude Sonnet…' : state.enrichFailed > 0 ? '⚠️ Complete (with errors)' : '✅ Complete'}</div>
           <div class="progress-count">${state.enrichDone}/${state.enrichTotal}${state.enrichFailed > 0 ? ` (${state.enrichFailed} failed)` : ''}</div>
         </div>
         <div class="progress-bar"><div class="progress-fill${state.enrichFailed > 0 ? ' has-errors' : ''}" style="width:${pct}%"></div></div>
-        ${state.enrichActive ? `<div class="progress-est">~${Math.max(1, Math.ceil((state.enrichTotal - state.enrichDone) / BATCH_SIZE) * 3)}s remaining · ${BATCH_SIZE} words/batch</div>` : ''}
+        ${state.enrichActive ? `<div class="progress-est">${state.wordsPerSecond} words/sec · ${state.activeRequests} active requests · ${elapsed}s elapsed</div>` : ''}
         ${state.enrichErrors.length > 0 ? `<div class="progress-errors">Errors: ${state.enrichErrors.map(e => e.error).slice(0, 2).join('; ')}${state.enrichErrors.length > 2 ? '...' : ''}</div>` : ''}
       </div>`;
+
+      // Activity panel with live log
+      if (state.activityLog.length > 0 || state.batchStatuses.length > 0) {
+        html += `<div class="activity-panel" id="activity-panel">
+          <div class="activity-header">
+            <div class="activity-title">${state.enrichActive ? '<span class="pulse"></span>' : ''} API Activity</div>
+            <div class="activity-stats">
+              <span><span class="label">Time:</span> ${elapsed}s</span>
+              <span><span class="label">Speed:</span> ${state.wordsPerSecond} w/s</span>
+              <span><span class="label">Active:</span> ${state.activeRequests}/${state.concurrency}</span>
+            </div>
+          </div>
+          <div class="activity-log">
+            ${state.activityLog.map(entry => {
+              const iconMap = { info: '●', start: '◐', success: '✓', error: '✗', complete: '★' };
+              const icon = iconMap[entry.type] || '●';
+              return `<div class="log-entry">
+                <span class="log-time">${entry.time}</span>
+                <span class="log-icon ${entry.type}">${icon}</span>
+                <span class="log-msg">${entry.message}</span>
+              </div>`;
+            }).join('')}
+          </div>
+          ${state.batchStatuses.length > 0 ? `<div class="batch-grid">
+            ${state.batchStatuses.map((status, i) =>
+              `<div class="batch-chip ${status}" title="Batch ${i + 1}: ${status}">${i + 1}</div>`
+            ).join('')}
+          </div>` : ''}
+        </div>`;
+      }
     }
 
     if (!state.enrichActive && unenrichedCount > 0) {
@@ -878,11 +1086,18 @@ function render() {
         <span class="api-key-label">Anthropic API Key:</span>
         <input type="password" class="api-key-input" id="apiKeyInput" value="${escapeHtml(state.apiKey)}" placeholder="sk-ant-..." oninput="updateApiKey(this.value)">
       </div>
+      <div class="concurrency-row">
+        <span class="concurrency-label">Parallel requests:</span>
+        <div class="concurrency-btns">
+          ${[1,2,3,4,5].map(n => `<button class="concurrency-btn${state.concurrency === n ? ' active' : ''}" onclick="setConcurrency(${n})">${n}</button>`).join('')}
+        </div>
+        <span class="concurrency-info">${state.concurrency > 1 ? `~${state.concurrency}x faster` : 'Sequential (safest)'}</span>
+      </div>
       <div class="enrich-inner">
         <div>
           <div class="enrich-title">🧠 ${unenrichedCount} new words need enrichment</div>
           <div class="enrich-desc">Claude Sonnet generates: english, french, category, topic, stroke count, frequency, difficulty</div>
-          <div class="enrich-est">~${Math.ceil(unenrichedCount / BATCH_SIZE)} API calls · ${BATCH_SIZE} words/batch</div>
+          <div class="enrich-est">~${Math.ceil(unenrichedCount / BATCH_SIZE)} API calls · ${BATCH_SIZE} words/batch · ${state.concurrency}x parallel</div>
         </div>
         <button class="enrich-btn" onclick="showEnrichConfirm()" ${!state.apiKey ? 'disabled' : ''}>✨ Enrich with AI</button>
       </div>`;
@@ -1028,13 +1243,19 @@ window.resetAll = () => setState({
   enrichErrors: [],
   duplicates: [],
   sortColumn: null,
-  sortDirection: 'asc'
+  sortDirection: 'asc',
+  activityLog: [],
+  batchStatuses: [],
+  enrichStartTime: null,
+  activeRequests: 0,
+  wordsPerSecond: 0
 });
 window.toggleLevel = (l) => { const s = new Set(state.selectedLevels); s.has(l) ? s.delete(l) : s.add(l); setState({ selectedLevels: s }); };
 window.setFilter = (f) => setState({ filter: f });
 window.setSearch = (v) => { state.search = v; render(); };
 window.download = download;
 window.updateApiKey = (v) => { state.apiKey = v; sessionStorage.setItem("hsk_api_key", v); };
+window.setConcurrency = (n) => { state.concurrency = Math.min(Math.max(1, n), MAX_CONCURRENCY); render(); };
 window.showEnrichConfirm = () => setState({ showConfirmModal: true });
 window.closeModal = (e) => { if (e.target.classList.contains('modal-overlay')) setState({ showConfirmModal: false }); };
 window.doEnrich = () => startEnrichment(false);
@@ -1046,6 +1267,34 @@ window.toggleSort = (column) => {
   } else {
     setState({ sortColumn: column, sortDirection: 'asc' });
   }
+};
+
+// Activity panel live update timer
+let activityTimer = null;
+function startActivityTimer() {
+  if (activityTimer) return;
+  activityTimer = setInterval(() => {
+    if (state.enrichActive) {
+      renderActivityPanel();
+    } else {
+      stopActivityTimer();
+    }
+  }, 200);
+}
+function stopActivityTimer() {
+  if (activityTimer) {
+    clearInterval(activityTimer);
+    activityTimer = null;
+  }
+}
+
+// Override startEnrichment to manage timer
+const originalStartEnrichment = startEnrichment;
+startEnrichment = async function(failedOnly = false) {
+  startActivityTimer();
+  await originalStartEnrichment(failedOnly);
+  stopActivityTimer();
+  renderActivityPanel(); // Final update
 };
 
 // Init
