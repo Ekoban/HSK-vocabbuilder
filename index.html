@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSK 合并器 — 3.0 (2026)</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', 'Noto Sans SC', system-ui, sans-serif; background: linear-gradient(160deg, #fafaf8 0%, #eee8dd 100%); color: #1a1a1a; min-height: 100vh; }
+.container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+h1 { font-size: 26px; font-weight: 700; font-family: 'Noto Sans SC', sans-serif; letter-spacing: -0.5px; }
+.tag { font-size: 13px; color: #999; font-weight: 500; background: #f0ece4; padding: 2px 10px; border-radius: 4px; }
+.subtitle { color: #777; font-size: 13px; margin: 8px 0 0; line-height: 1.6; }
+.subtitle span { color: #aaa; }
+
+/* Drop zone */
+.dropzone { border: 2px dashed #ccc; border-radius: 16px; padding: 64px 32px; text-align: center; cursor: pointer; transition: all 0.2s; background: #fff; }
+.dropzone.over { border-color: #1e88e5; background: rgba(30,136,229,0.04); }
+.dropzone-icon { font-size: 44px; margin-bottom: 12px; }
+.dropzone-title { font-size: 16px; font-weight: 600; color: #333; }
+.dropzone-sub { font-size: 13px; color: #999; margin-top: 8px; }
+.dropzone-sub code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+/* Controls */
+.bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 8px; }
+.bar-file { font-size: 13px; color: #888; }
+.btn { background: none; border: 1px solid #ddd; border-radius: 8px; padding: 5px 14px; font-size: 13px; cursor: pointer; color: #666; font-family: inherit; transition: all 0.15s; }
+.btn:hover { background: #f5f5f5; }
+.level-row { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.level-label { font-size: 12px; color: #aaa; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.level-btn { border: none; border-radius: 6px; padding: 4px 12px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.stat { border-radius: 12px; padding: 18px 20px; border: 1px solid rgba(0,0,0,0.06); }
+.stat-val { font-size: 30px; font-weight: 700; font-family: 'DM Mono', monospace; letter-spacing: -1px; }
+.stat-label { font-size: 13px; color: #555; margin-top: 2px; font-weight: 500; }
+.stat-sub { font-size: 11px; color: #999; margin-top: 4px; }
+
+/* Breakdown */
+.breakdown { background: #fff; border-radius: 12px; padding: 18px; margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.06); }
+.breakdown-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.breakdown-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.breakdown-card { border-radius: 8px; padding: 10px 14px; }
+.breakdown-card-title { font-weight: 700; font-size: 13px; }
+.breakdown-card-sub { font-size: 11px; margin-top: 3px; opacity: 0.8; }
+
+/* Enrichment */
+.enrich-panel { background: linear-gradient(135deg, #f5f0ff 0%, #eef5ff 100%); border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(30,136,229,0.12); }
+.enrich-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.enrich-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.enrich-desc { font-size: 12px; color: #666; }
+.enrich-est { font-size: 11px; color: #999; margin-top: 4px; }
+.enrich-btn { background: linear-gradient(135deg, #1e88e5, #7c4dff); color: #fff; border: none; border-radius: 10px; padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; box-shadow: 0 2px 8px rgba(30,136,229,0.3); font-family: inherit; transition: all 0.15s; }
+.enrich-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.enrich-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.enrich-btn-secondary { background: #fff; color: #1e88e5; border: 1px solid #1e88e5; box-shadow: none; }
+
+/* API Key */
+.api-key-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.api-key-input { border: 1px solid #ddd; border-radius: 8px; padding: 7px 12px; font-size: 12px; width: 340px; max-width: 100%; outline: none; font-family: 'DM Mono', monospace; transition: border-color 0.15s; }
+.api-key-input:focus { border-color: #1e88e5; }
+.api-key-label { font-size: 12px; color: #888; }
+
+/* Progress */
+.progress-wrap { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 12px; border: 1px solid rgba(0,0,0,0.06); }
+.progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+.progress-title { font-size: 14px; font-weight: 600; }
+.progress-count { font-size: 13px; color: #888; font-family: 'DM Mono', monospace; }
+.progress-bar { background: #f0f0f0; border-radius: 6px; height: 8px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 6px; transition: width 0.3s ease; background: linear-gradient(90deg, #43a047, #66bb6a); }
+.progress-fill.has-errors { background: linear-gradient(90deg, #43a047, #f57c00); }
+.progress-est { font-size: 11px; color: #aaa; margin-top: 6px; }
+.progress-errors { font-size: 11px; color: #e65100; margin-top: 4px; }
+
+/* Filters */
+.filter-row { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+.filter-btn { background: #fff; color: #666; border: 1px solid #ddd; border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.filter-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+.search-input { border: 1px solid #ddd; border-radius: 8px; padding: 6px 12px; font-size: 12px; width: 160px; outline: none; font-family: inherit; transition: border-color 0.15s; }
+.search-input:focus { border-color: #1e88e5; }
+.download-btn { background: #1a1a1a; color: #fff; border: none; border-radius: 8px; padding: 7px 18px; font-size: 12px; font-weight: 600; cursor: pointer; letter-spacing: 0.3px; font-family: inherit; transition: all 0.15s; }
+.download-btn:hover { background: #333; }
+
+/* Table */
+.table-wrap { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,0,0,0.06); }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead tr { background: #f8f8f6; }
+th { text-align: left; padding: 9px 12px; font-weight: 600; color: #888; border-bottom: 1px solid #eee; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none; white-space: nowrap; }
+th:hover { background: #f0f0ee; }
+th .sort-icon { margin-left: 4px; opacity: 0.4; }
+th.sorted .sort-icon { opacity: 1; }
+td { padding: 7px 12px; border-bottom: 1px solid #f5f5f5; }
+.td-zh { font-family: 'Noto Sans SC', sans-serif; font-weight: 500; font-size: 15px; }
+.td-dim { color: #ccc; }
+.td-en { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.td-level-change { font-size: 11px; color: #7b1fa2; }
+.status-enriched { color: #43a047; font-weight: 500; font-size: 11px; }
+.status-new { color: #1565c0; font-size: 11px; }
+.status-missing { color: #e65100; font-size: 11px; }
+.status-ok { color: #2e7d32; font-size: 11px; }
+.status-failed { color: #c62828; font-size: 11px; }
+.table-more { padding: 14px; text-align: center; color: #aaa; font-size: 12px; border-top: 1px solid #f0f0f0; }
+.table-empty { padding: 40px; text-align: center; color: #bbb; font-size: 13px; }
+.badge { color: #fff; border-radius: 4px; padding: 1px 5px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.footer { margin-top: 16px; font-size: 11px; color: #bbb; text-align: center; line-height: 1.6; }
+.spacer { flex: 1; }
+.stop-btn { background: none; border: 1px solid #ccc; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; color: #888; font-family: inherit; transition: all 0.15s; }
+.stop-btn:hover { background: #f5f5f5; border-color: #999; }
+
+/* Warning/Info messages */
+.warning-banner { background: #fff3e0; border: 1px solid #ffb74d; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: #e65100; }
+.warning-banner strong { font-weight: 600; }
+.info-banner { background: #e3f2fd; border: 1px solid #90caf9; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: #1565c0; }
+.success-banner { background: #e8f5e9; border: 1px solid #81c784; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: #2e7d32; }
+
+/* Confirmation Modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal { background: #fff; border-radius: 16px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+.modal-body { font-size: 13px; color: #666; line-height: 1.6; margin-bottom: 20px; }
+.modal-body ul { margin: 12px 0; padding-left: 20px; }
+.modal-body li { margin: 4px 0; }
+.modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
+.modal-btn { padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.modal-btn-cancel { background: #f5f5f5; border: 1px solid #ddd; color: #666; }
+.modal-btn-cancel:hover { background: #eee; }
+.modal-btn-confirm { background: linear-gradient(135deg, #1e88e5, #7c4dff); border: none; color: #fff; }
+.modal-btn-confirm:hover { opacity: 0.9; }
+
+/* Mobile responsive */
+@media (max-width: 600px) {
+  .container { padding: 16px; }
+  h1 { font-size: 22px; }
+  .stat-val { font-size: 24px; }
+  .api-key-input { width: 100%; }
+  .filter-row { gap: 6px; }
+  .filter-btn { padding: 4px 8px; font-size: 11px; }
+  .search-input { width: 120px; }
+  .enrich-inner { flex-direction: column; align-items: stretch; }
+  .enrich-btn { width: 100%; text-align: center; }
+  .table-scroll { font-size: 11px; }
+  td, th { padding: 6px 8px; }
+  .td-zh { font-size: 14px; }
+}
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+<div id="modal-root"></div>
+<script>
+// ─── HSK Reference Data ───
+</script>
+<script src="hsk_data.js"></script>
+<script>
+// ─── Pinyin to IPA Conversion (deterministic, no LLM needed) ───
+const PINYIN_IPA = {
+  // Initials
+  b: 'p', p: 'pʰ', m: 'm', f: 'f',
+  d: 't', t: 'tʰ', n: 'n', l: 'l',
+  g: 'k', k: 'kʰ', h: 'x',
+  j: 'tɕ', q: 'tɕʰ', x: 'ɕ',
+  zh: 'ʈʂ', ch: 'ʈʂʰ', sh: 'ʂ', r: 'ʐ',
+  z: 'ts', c: 'tsʰ', s: 's',
+  y: '', w: '',
+  // Finals (simplified mapping)
+  a: 'a', o: 'o', e: 'ɤ', i: 'i', u: 'u', ü: 'y', v: 'y',
+  ai: 'aɪ̯', ei: 'eɪ̯', ao: 'aʊ̯', ou: 'oʊ̯',
+  an: 'an', en: 'ən', ang: 'aŋ', eng: 'əŋ', ong: 'ʊŋ',
+  ia: 'ja', ie: 'jɛ', iao: 'jaʊ̯', iu: 'joʊ̯', iou: 'joʊ̯',
+  ian: 'jɛn', in: 'in', iang: 'jaŋ', ing: 'iŋ', iong: 'jʊŋ',
+  ua: 'wa', uo: 'wo', uai: 'waɪ̯', ui: 'weɪ̯', uei: 'weɪ̯',
+  uan: 'wan', un: 'wən', uen: 'wən', uang: 'waŋ',
+  üe: 'ɥɛ', ue: 'ɥɛ', üan: 'ɥɛn', ün: 'yn',
+  er: 'əɻ', r: 'ʐ̩'
+};
+
+const TONE_MARKS = {
+  'ā': { base: 'a', tone: 1 }, 'á': { base: 'a', tone: 2 }, 'ǎ': { base: 'a', tone: 3 }, 'à': { base: 'a', tone: 4 },
+  'ē': { base: 'e', tone: 1 }, 'é': { base: 'e', tone: 2 }, 'ě': { base: 'e', tone: 3 }, 'è': { base: 'e', tone: 4 },
+  'ī': { base: 'i', tone: 1 }, 'í': { base: 'i', tone: 2 }, 'ǐ': { base: 'i', tone: 3 }, 'ì': { base: 'i', tone: 4 },
+  'ō': { base: 'o', tone: 1 }, 'ó': { base: 'o', tone: 2 }, 'ǒ': { base: 'o', tone: 3 }, 'ò': { base: 'o', tone: 4 },
+  'ū': { base: 'u', tone: 1 }, 'ú': { base: 'u', tone: 2 }, 'ǔ': { base: 'u', tone: 3 }, 'ù': { base: 'u', tone: 4 },
+  'ǖ': { base: 'ü', tone: 1 }, 'ǘ': { base: 'ü', tone: 2 }, 'ǚ': { base: 'ü', tone: 3 }, 'ǜ': { base: 'ü', tone: 4 },
+};
+
+const IPA_TONES = { 1: '˥', 2: '˧˥', 3: '˨˩˦', 4: '˥˩', 5: '' };
+
+function pinyinToIPA(pinyin) {
+  if (!pinyin) return null;
+  const syllables = pinyin.toLowerCase().split(/[\s,]+/).filter(Boolean);
+  const result = syllables.map(syl => {
+    let tone = 5; // neutral
+    let clean = '';
+    for (const char of syl) {
+      if (TONE_MARKS[char]) {
+        clean += TONE_MARKS[char].base;
+        tone = TONE_MARKS[char].tone;
+      } else if (/[a-züv]/.test(char)) {
+        clean += char;
+      }
+    }
+    // Very simplified IPA (just return the pinyin base for now, real conversion is complex)
+    return clean + IPA_TONES[tone];
+  });
+  return '/' + result.join(' ') + '/';
+}
+
+// ─── Traditional to Simplified mapping (common characters) ───
+const TRAD_TO_SIMP = {
+  '國': '国', '學': '学', '說': '说', '語': '语', '時': '时', '會': '会', '見': '见', '個': '个',
+  '來': '来', '這': '这', '為': '为', '後': '后', '開': '开', '長': '长', '動': '动', '電': '电',
+  '書': '书', '問': '问', '話': '话', '對': '对', '發': '发', '頭': '头', '認': '认', '錢': '钱',
+  '飛': '飞', '機': '机', '車': '车', '門': '门', '關': '关', '難': '难', '題': '题', '體': '体',
+  '樣': '样', '點': '点', '經': '经', '過': '过', '讀': '读', '寫': '写', '聽': '听', '應': '应',
+  '還': '还', '進': '进', '場': '场', '買': '买', '賣': '卖', '東': '东', '西': '西', '裡': '里',
+  '處': '处', '師': '师', '親': '亲', '愛': '爱', '歡': '欢', '樂': '乐', '習': '习', '氣': '气',
+  '醫': '医', '務': '务', '員': '员', '報': '报', '紙': '纸', '實': '实', '現': '现', '種': '种',
+  '圖': '图', '館': '馆', '運': '运', '號': '号', '幾': '几', '準': '准', '備': '备', '農': '农',
+  '間': '间', '邊': '边', '達': '达', '選': '选', '幫': '帮', '華': '华', '產': '产', '結': '结',
+  '節': '节', '當': '当', '廠': '厂', '興': '兴', '織': '织', '統': '统', '環': '环', '護': '护',
+};
+
+function tradToSimp(text) {
+  if (!text) return text;
+  return text.split('').map(c => TRAD_TO_SIMP[c] || c).join('');
+}
+
+// ─── HSK Reference Processing ───
+const HSK_REF = HSK_RAW.map(r => ({
+  word: r[0], pinyin: r[1], level: r[2],
+  pos: r[3] || null, charType: r[4] === "w" ? "writing" : "recognition",
+  altLevels: r[5] || null
+}));
+
+function normalize(w) {
+  if (!w) return { variants: [] };
+  const base = w.replace(/\d+$/, "");
+  const full = base.replace(/[（）()]/g, "");
+  const short = base.replace(/（[^）]*）/g, "").replace(/\([^)]*\)/g, "");
+  // Add simplified version of traditional characters
+  const simplified = tradToSimp(full);
+  // Add reduplicated version for single characters
+  const variants = [w, base, full, short];
+  if (simplified !== full) variants.push(simplified);
+  if (full.length === 1) variants.push(full + full); // 爸 → 爸爸
+  return { variants: [...new Set(variants.filter(Boolean))] };
+}
+
+const LOOKUP = (() => {
+  const map = new Map();
+  const pinyinMap = new Map(); // pinyin fallback
+  for (const ref of HSK_REF) {
+    for (const v of normalize(ref.word).variants) {
+      if (!map.has(v)) map.set(v, ref);
+    }
+    // Also index by pinyin for fallback matching
+    if (ref.pinyin) {
+      const pKey = ref.pinyin.toLowerCase().replace(/\s+/g, '');
+      if (!pinyinMap.has(pKey)) pinyinMap.set(pKey, ref);
+    }
+  }
+  return { byWord: map, byPinyin: pinyinMap };
+})();
+
+function findMatch(chinese, pinyin) {
+  // Try word matching first
+  for (const v of normalize(chinese).variants) {
+    const m = LOOKUP.byWord.get(v);
+    if (m) return m;
+  }
+  // Try traditional → simplified
+  const simp = tradToSimp(chinese);
+  if (simp !== chinese) {
+    for (const v of normalize(simp).variants) {
+      const m = LOOKUP.byWord.get(v);
+      if (m) return m;
+    }
+  }
+  // Try pinyin fallback (if provided and unambiguous)
+  if (pinyin) {
+    const pKey = pinyin.toLowerCase().replace(/\s+/g, '');
+    const m = LOOKUP.byPinyin.get(pKey);
+    if (m) return m;
+  }
+  return null;
+}
+
+const LC = {
+  1: { bg: "#e8f5e9", fg: "#2e7d32", badge: "#43a047" },
+  2: { bg: "#e0f2f1", fg: "#00695c", badge: "#00897b" },
+  3: { bg: "#e3f2fd", fg: "#1565c0", badge: "#1e88e5" },
+  4: { bg: "#f3e5f5", fg: "#7b1fa2", badge: "#8e24aa" },
+  5: { bg: "#fff3e0", fg: "#e65100", badge: "#f57c00" },
+  6: { bg: "#fce4ec", fg: "#c62828", badge: "#e53935" },
+};
+
+const posMap = {"名":"noun","动":"verb","形":"adjective","副":"adverb","数":"numeral",
+  "量":"measure word","代":"pronoun","连":"conjunction","介":"preposition",
+  "助":"particle","叹":"interjection","拟声":"onomatopoeia"};
+
+const BATCH_SIZE = 40;
+const FETCH_TIMEOUT = 30000; // 30 seconds
+
+// ─── State ───
+let state = {
+  currentData: null,
+  fileName: "",
+  selectedLevels: new Set([1,2,3,4,5,6]),
+  filter: "all",
+  search: "",
+  sortColumn: null,
+  sortDirection: 'asc',
+  enrichedMap: new Map(),
+  failedWords: new Set(),
+  enrichActive: false,
+  enrichTotal: 0,
+  enrichDone: 0,
+  enrichFailed: 0,
+  enrichErrors: [],
+  apiKey: sessionStorage.getItem("hsk_api_key") || "",
+  cancelRequested: false,
+  mergeResult: null,
+  duplicates: [],
+  showConfirmModal: false,
+};
+
+// Keep track of the last search value to restore focus
+let lastSearchValue = '';
+let shouldRestoreFocus = false;
+
+function setState(updates, skipRecompute = false) {
+  Object.assign(state, updates);
+  if (!skipRecompute && (updates.currentData !== undefined || updates.selectedLevels !== undefined || updates.enrichedMap !== undefined)) {
+    state.mergeResult = computeMerge();
+  }
+  render();
+}
+
+// ─── Duplicate Detection ───
+function detectDuplicates(data) {
+  const seen = new Map();
+  const dupes = [];
+  for (const item of data) {
+    const chinese = item.chinese || item.word || item.character;
+    if (!chinese) continue;
+    if (seen.has(chinese)) {
+      dupes.push({ word: chinese, indices: [seen.get(chinese), data.indexOf(item)] });
+    } else {
+      seen.set(chinese, data.indexOf(item));
+    }
+  }
+  return dupes;
+}
+
+// ─── Merge Logic ───
+function computeMerge() {
+  if (!state.currentData) return null;
+  const matched = [], unmatched = [], levelChanges = [];
+  let maxId = 0;
+  const currentWords = new Set();
+
+  for (const item of state.currentData) {
+    if (item.id && item.id > maxId) maxId = item.id;
+    const chinese = item.chinese || item.word || item.character;
+    if (!chinese) continue;
+    currentWords.add(chinese);
+    // Also add simplified version
+    const simp = tradToSimp(chinese);
+    if (simp !== chinese) currentWords.add(simp);
+
+    const ref = findMatch(chinese, item.pinyin);
+    const enriched = { ...item };
+
+    if (ref) {
+      enriched.hskLevel2026 = ref.level;
+      enriched.charType = ref.charType;
+      enriched.altLevels = ref.altLevels;
+      enriched.isNew2026 = false;
+      enriched.lesson = enriched.lesson || null;
+      matched.push(enriched);
+      const oldLevel = item.hskLevel || item.level;
+      if (oldLevel && oldLevel !== ref.level) {
+        levelChanges.push({ word: chinese, pinyin: ref.pinyin, from: oldLevel, to: ref.level, item: enriched });
+      }
+    } else {
+      enriched.hskLevel2026 = null;
+      enriched.charType = null;
+      enriched.altLevels = null;
+      enriched.isNew2026 = false;
+      enriched.lesson = enriched.lesson || null;
+      unmatched.push(enriched);
+    }
+  }
+
+  const newWords = [];
+  for (const ref of HSK_REF) {
+    if (!state.selectedLevels.has(ref.level)) continue;
+    const found = normalize(ref.word).variants.some(v => currentWords.has(v));
+    if (!found) {
+      maxId++;
+      const sample = state.currentData[0] || {};
+      const entry = {};
+      for (const key of Object.keys(sample)) entry[key] = null;
+      entry.id = maxId;
+      entry.chinese = ref.word;
+      entry.pinyin = ref.pinyin;
+      entry.hskLevel = null;
+      entry.hskLevel2026 = ref.level;
+      entry.charType = ref.charType;
+      entry.altLevels = ref.altLevels;
+      entry.isNew2026 = true;
+      entry.lesson = null;
+      entry._pos = ref.pos;
+      if (ref.pos) {
+        const main = ref.pos.split("、")[0].replace(/[（）]/g, "");
+        entry.category = posMap[main] || ref.pos;
+      }
+      // Generate IPA client-side
+      entry.ipa = pinyinToIPA(ref.pinyin);
+
+      const e = state.enrichedMap.get(ref.word);
+      if (e) {
+        entry.english = e.en || null;
+        entry.french = e.fr || null;
+        if (e.ipa) entry.ipa = e.ipa; // Use LLM IPA if available
+        entry.category = e.cat || entry.category;
+        entry.topic = e.topic || null;
+        entry.strokeCount = e.sc || null;
+        entry.usageFrequency = e.freq || null;
+        entry.difficulty = e.diff || null;
+      }
+      newWords.push(entry);
+    }
+  }
+
+  return { matched, unmatched, newWords, levelChanges, allMerged: [...matched, ...unmatched, ...newWords] };
+}
+
+function getFiltered() {
+  const mr = state.mergeResult;
+  if (!mr) return [];
+  let items;
+  switch (state.filter) {
+    case "matched": items = mr.matched; break;
+    case "unmatched": items = mr.unmatched; break;
+    case "new": items = mr.newWords; break;
+    case "levelChanged": {
+      const changeMap = new Map(mr.levelChanges.map(c => [c.word, c]));
+      items = mr.matched.filter(i => changeMap.has(i.chinese || i.word)).map(i => {
+        const change = changeMap.get(i.chinese || i.word);
+        return { ...i, _levelFrom: change.from, _levelTo: change.to };
+      });
+      break;
+    }
+    case "enriched": items = mr.newWords.filter(w => state.enrichedMap.has(w.chinese)); break;
+    case "failed": items = mr.newWords.filter(w => state.failedWords.has(w.chinese)); break;
+    default: items = mr.allMerged;
+  }
+
+  if (state.search.trim()) {
+    const q = state.search.trim().toLowerCase();
+    items = items.filter(i =>
+      (i.chinese||"").includes(q) || (i.pinyin||"").toLowerCase().includes(q) ||
+      (i.english||"").toLowerCase().includes(q) || (i.french||"").toLowerCase().includes(q)
+    );
+  }
+
+  // Apply sorting
+  if (state.sortColumn) {
+    items = [...items].sort((a, b) => {
+      let aVal = a[state.sortColumn];
+      let bVal = b[state.sortColumn];
+
+      // Handle nulls
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+
+      // String comparison
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+      let cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+      return state.sortDirection === 'desc' ? -cmp : cmp;
+    });
+  }
+
+  return items;
+}
+
+// ─── Enrichment with improved error handling ───
+async function callEnrichAPI(words, retryCount = 0) {
+  const input = words.map(w => ({ w: w.chinese, p: w.pinyin || "", pos: w._pos || "", l: w.hskLevel2026 }));
+  const prompt = `For each Chinese word below, return a JSON array of objects with these exact fields:
+- w: the Chinese word (echo back exactly)
+- en: concise English translation (1-5 words)
+- fr: concise French translation (1-5 words)
+- cat: English category (noun, verb, adjective, adverb, measure word, pronoun, conjunction, preposition, particle, interjection, numeral, phrase)
+- topic: pick ONE from: greeting, family, food, drink, body, health, clothing, home, school, work, transport, shopping, money, weather, time, nature, animal, color, number, technology, sport, travel, culture, emotion, social, government, science, media, law, abstract, daily_life
+- sc: total stroke count (sum all characters)
+- freq: usage frequency 1-5 (5=extremely common, 1=rare)
+- diff: difficulty 1-5 (1=beginner, 5=advanced)
+
+Process these ${input.length} words:
+${JSON.stringify(input)}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": state.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: "You are a Chinese dictionary API. Return ONLY a valid JSON array. No markdown, no explanation.",
+        messages: [{ role: "user", content: prompt }]
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    // Handle rate limiting with exponential backoff
+    if (resp.status === 429) {
+      if (retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+        console.log(`Rate limited, retrying in ${Math.round(delay)}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        return callEnrichAPI(words, retryCount + 1);
+      }
+      throw new Error('Rate limit exceeded after 3 retries');
+    }
+
+    if (!resp.ok) {
+      const errorText = await resp.text().catch(() => 'Unknown error');
+      throw new Error(`API ${resp.status}: ${errorText.slice(0, 100)}`);
+    }
+
+    const data = await resp.json();
+    const text = data.content.map(c => c.text || "").join("");
+
+    // Try to parse the JSON response
+    let parsed;
+    try {
+      parsed = JSON.parse(text.replace(/```json\n?|```\n?/g, "").trim());
+    } catch (parseErr) {
+      console.error('JSON parse error:', parseErr, 'Raw text:', text.slice(0, 200));
+      throw new Error(`Invalid JSON response: ${parseErr.message}`);
+    }
+
+    // Validate response structure
+    if (!Array.isArray(parsed)) {
+      throw new Error('Response is not an array');
+    }
+
+    // Validate each item has required fields
+    const validated = [];
+    for (const item of parsed) {
+      if (item && typeof item === 'object' && item.w) {
+        validated.push({
+          w: String(item.w),
+          en: item.en || null,
+          fr: item.fr || null,
+          cat: item.cat || null,
+          topic: item.topic || null,
+          sc: typeof item.sc === 'number' ? item.sc : null,
+          freq: typeof item.freq === 'number' ? item.freq : null,
+          diff: typeof item.diff === 'number' ? item.diff : null,
+        });
+      }
+    }
+
+    return { success: true, results: validated, failed: [] };
+
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw err;
+  }
+}
+
+async function startEnrichment(failedOnly = false) {
+  const mr = state.mergeResult;
+  if (!mr || !state.apiKey) return;
+  state.cancelRequested = false;
+
+  const toEnrich = failedOnly
+    ? mr.newWords.filter(w => state.failedWords.has(w.chinese))
+    : mr.newWords.filter(w => !state.enrichedMap.has(w.chinese));
+
+  if (toEnrich.length === 0) return;
+
+  const batches = [];
+  for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) batches.push(toEnrich.slice(i, i + BATCH_SIZE));
+
+  setState({
+    enrichActive: true,
+    enrichTotal: toEnrich.length,
+    enrichDone: 0,
+    enrichFailed: 0,
+    enrichErrors: [],
+    showConfirmModal: false
+  });
+
+  const newMap = new Map(state.enrichedMap);
+  const newFailed = new Set(failedOnly ? [] : state.failedWords); // Clear failed set if retrying failed
+  let done = 0, failed = 0;
+  const errors = [];
+
+  for (const batch of batches) {
+    if (state.cancelRequested) break;
+
+    try {
+      const { results, failed: batchFailed } = await callEnrichAPI(batch);
+
+      // Track which words were successfully enriched
+      const enrichedWords = new Set(results.map(r => r.w));
+
+      for (const r of results) {
+        if (r && r.w) {
+          newMap.set(r.w, r);
+          newFailed.delete(r.w);
+        }
+      }
+
+      // Track words that weren't in the response
+      for (const word of batch) {
+        if (!enrichedWords.has(word.chinese)) {
+          newFailed.add(word.chinese);
+          failed++;
+        }
+      }
+
+      done += batch.length;
+
+    } catch (err) {
+      console.error(`Batch failed:`, err);
+      errors.push({ batch: batch.map(w => w.chinese).slice(0, 3).join(', ') + '...', error: err.message });
+
+      // Mark all words in failed batch
+      for (const word of batch) {
+        newFailed.add(word.chinese);
+      }
+      failed += batch.length;
+      done += batch.length;
+    }
+
+    setState({
+      enrichedMap: newMap,
+      failedWords: newFailed,
+      enrichDone: done,
+      enrichFailed: failed,
+      enrichErrors: errors
+    }, true);
+
+    // Delay between batches
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  setState({ enrichActive: false });
+}
+
+// ─── File handling ───
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      const arr = Array.isArray(parsed) ? parsed : parsed.data || parsed.words || Object.values(parsed);
+      if (!Array.isArray(arr) || arr.length === 0) { alert("Format not recognized. Expected array of objects."); return; }
+
+      // Detect duplicates
+      const dupes = detectDuplicates(arr);
+
+      setState({
+        currentData: arr,
+        fileName: file.name,
+        filter: "all",
+        search: "",
+        enrichedMap: new Map(),
+        failedWords: new Set(),
+        enrichActive: false,
+        enrichTotal: 0,
+        enrichDone: 0,
+        enrichFailed: 0,
+        enrichErrors: [],
+        duplicates: dupes,
+        sortColumn: null,
+        sortDirection: 'asc'
+      });
+    } catch (err) { alert("JSON Error: " + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+function download(newOnly = false) {
+  const mr = state.mergeResult;
+  if (!mr) return;
+
+  const data = newOnly ? mr.newWords : mr.allMerged;
+  const clean = data.map(item => { const o = {...item}; delete o._pos; delete o._levelFrom; delete o._levelTo; return o; });
+  const blob = new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const suffix = newOnly ? 'new_words' : 'merged';
+  a.download = `hsk_${suffix}_2026_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Render ───
+function badge(level) {
+  if (!level) return '<span style="color:#bbb;font-size:11px">—</span>';
+  const c = LC[level] || { badge: "#666" };
+  return `<span class="badge" style="background:${c.badge}">HSK ${level}</span>`;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderConfirmModal() {
+  const mr = state.mergeResult;
+  const unenrichedCount = mr.newWords.filter(w => !state.enrichedMap.has(w.chinese)).length;
+  const batchCount = Math.ceil(unenrichedCount / BATCH_SIZE);
+  const estimatedCost = (batchCount * 0.003).toFixed(3); // ~$0.003 per request estimate
+
+  return `
+    <div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-title">✨ Start AI Enrichment?</div>
+        <div class="modal-body">
+          <p>This will use the Anthropic API to enrich <strong>${unenrichedCount}</strong> new words.</p>
+          <ul>
+            <li><strong>${batchCount}</strong> API calls (${BATCH_SIZE} words/batch)</li>
+            <li>Estimated cost: <strong>~$${estimatedCost}</strong></li>
+            <li>Estimated time: <strong>~${batchCount * 3}s</strong></li>
+          </ul>
+          <p>Fields generated: English, French, category, topic, stroke count, frequency, difficulty</p>
+        </div>
+        <div class="modal-actions">
+          <button class="modal-btn modal-btn-cancel" onclick="setState({showConfirmModal: false})">Cancel</button>
+          <button class="modal-btn modal-btn-confirm" onclick="doEnrich()">Start Enrichment</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  const modalRoot = document.getElementById("modal-root");
+  const mr = state.mergeResult;
+
+  // Save search input state before re-render
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    lastSearchValue = searchInput.value;
+    shouldRestoreFocus = document.activeElement === searchInput;
+  }
+
+  // Render modal if needed
+  modalRoot.innerHTML = state.showConfirmModal && mr ? renderConfirmModal() : '';
+
+  if (!state.currentData) {
+    app.innerHTML = `
+      <div style="margin-bottom:32px">
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+          <h1>HSK 合并器</h1>
+          <span class="tag">3.0 — 2026 revision</span>
+        </div>
+        <p class="subtitle">Merge & enrich your flashcard data with the official New HSK standard.
+          <span> · ${HSK_REF.length.toLocaleString()} reference words · L1–L6 · AI enrichment</span></p>
+      </div>
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-title">Drop your current HSK JSON</div>
+        <div class="dropzone-sub">Array of objects with a <code>chinese</code> field</div>
+      </div>`;
+    setupDropzone();
+    return;
+  }
+
+  const filtered = getFiltered();
+  const enrichedCount = mr.newWords.filter(w => state.enrichedMap.has(w.chinese)).length;
+  const unenrichedCount = mr.newWords.length - enrichedCount;
+  const failedCount = state.failedWords.size;
+
+  let html = `
+    <div style="margin-bottom:32px">
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+        <h1>HSK 合并器</h1>
+        <span class="tag">3.0 — 2026 revision</span>
+      </div>
+      <p class="subtitle">Merge & enrich your flashcard data with the official New HSK standard.
+        <span> · ${HSK_REF.length.toLocaleString()} reference words · L1–L6 · AI enrichment</span></p>
+    </div>`;
+
+  // Duplicate warning
+  if (state.duplicates.length > 0) {
+    html += `<div class="warning-banner">
+      <strong>⚠️ Duplicates detected:</strong> Your data contains ${state.duplicates.length} duplicate entries for the same Chinese character.
+      Words: ${state.duplicates.slice(0, 5).map(d => d.word).join(', ')}${state.duplicates.length > 5 ? '...' : ''}
+    </div>`;
+  }
+
+  // File bar
+  html += `<div class="bar">
+    <div class="bar-file">📄 <strong>${escapeHtml(state.fileName)}</strong> — ${state.currentData.length.toLocaleString()} entries</div>
+    <button class="btn" onclick="resetAll()">↺ Reset</button>
+  </div>`;
+
+  // Level toggles
+  html += `<div class="level-row"><span class="level-label">Levels:</span>`;
+  for (let l = 1; l <= 6; l++) {
+    const active = state.selectedLevels.has(l);
+    html += `<button class="level-btn" style="background:${active ? LC[l].badge : '#eee'};color:${active ? '#fff' : '#bbb'}" onclick="toggleLevel(${l})">L${l}</button>`;
+  }
+  html += `</div>`;
+
+  // Stats
+  html += `<div class="stats">
+    <div class="stat" style="background:#e8f5e9"><div class="stat-val">${mr.matched.length}</div><div class="stat-label">Matched</div><div class="stat-sub">In your data + in 2026</div></div>
+    <div class="stat" style="background:#e3f2fd"><div class="stat-val">${mr.newWords.length}</div><div class="stat-label">New words</div><div class="stat-sub">${enrichedCount > 0 ? enrichedCount + ' enriched' : 'Need enrichment'}</div></div>
+    <div class="stat" style="background:#fff3e0"><div class="stat-val">${mr.unmatched.length}</div><div class="stat-label">Not in 2026</div><div class="stat-sub">Your data only</div></div>
+    <div class="stat" style="background:#f3e5f5"><div class="stat-val">${mr.levelChanges.length}</div><div class="stat-label">Level Δ</div><div class="stat-sub">Moved level</div></div>
+  </div>`;
+
+  // Breakdown
+  html += `<div class="breakdown"><div class="breakdown-title">2026 level breakdown</div><div class="breakdown-row">`;
+  for (let l = 1; l <= 6; l++) {
+    if (!state.selectedLevels.has(l)) continue;
+    const ref = HSK_REF.filter(r => r.level === l).length;
+    const m = mr.matched.filter(i => i.hskLevel2026 === l).length;
+    const n = mr.newWords.filter(i => i.hskLevel2026 === l).length;
+    const en = mr.newWords.filter(i => i.hskLevel2026 === l && state.enrichedMap.has(i.chinese)).length;
+    html += `<div class="breakdown-card" style="background:${LC[l].bg}">
+      <div class="breakdown-card-title" style="color:${LC[l].fg}">Level ${l} <span style="font-weight:400;font-size:11px">(${ref})</span></div>
+      <div class="breakdown-card-sub" style="color:${LC[l].fg}">${m} matched · ${n} new${en > 0 ? ` · ${en} enriched` : ''}</div>
+    </div>`;
+  }
+  html += `</div></div>`;
+
+  // Enrichment panel
+  if (mr.newWords.length > 0) {
+    html += `<div class="enrich-panel">`;
+
+    if (state.enrichActive || state.enrichDone > 0) {
+      const pct = state.enrichTotal > 0 ? Math.round((state.enrichDone / state.enrichTotal) * 100) : 0;
+      html += `<div class="progress-wrap">
+        <div class="progress-header">
+          <div class="progress-title">${state.enrichActive ? '✨ Enriching with Claude Sonnet…' : state.enrichFailed > 0 ? '⚠️ Complete (with errors)' : '✅ Complete'}</div>
+          <div class="progress-count">${state.enrichDone}/${state.enrichTotal}${state.enrichFailed > 0 ? ` (${state.enrichFailed} failed)` : ''}</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill${state.enrichFailed > 0 ? ' has-errors' : ''}" style="width:${pct}%"></div></div>
+        ${state.enrichActive ? `<div class="progress-est">~${Math.max(1, Math.ceil((state.enrichTotal - state.enrichDone) / BATCH_SIZE) * 3)}s remaining · ${BATCH_SIZE} words/batch</div>` : ''}
+        ${state.enrichErrors.length > 0 ? `<div class="progress-errors">Errors: ${state.enrichErrors.map(e => e.error).slice(0, 2).join('; ')}${state.enrichErrors.length > 2 ? '...' : ''}</div>` : ''}
+      </div>`;
+    }
+
+    if (!state.enrichActive && unenrichedCount > 0) {
+      html += `<div class="api-key-row">
+        <span class="api-key-label">Anthropic API Key:</span>
+        <input type="password" class="api-key-input" id="apiKeyInput" value="${escapeHtml(state.apiKey)}" placeholder="sk-ant-..." oninput="updateApiKey(this.value)">
+      </div>
+      <div class="enrich-inner">
+        <div>
+          <div class="enrich-title">🧠 ${unenrichedCount} new words need enrichment</div>
+          <div class="enrich-desc">Claude Sonnet generates: english, french, category, topic, stroke count, frequency, difficulty</div>
+          <div class="enrich-est">~${Math.ceil(unenrichedCount / BATCH_SIZE)} API calls · ${BATCH_SIZE} words/batch</div>
+        </div>
+        <button class="enrich-btn" onclick="showEnrichConfirm()" ${!state.apiKey ? 'disabled' : ''}>✨ Enrich with AI</button>
+      </div>`;
+    }
+
+    // Retry failed button
+    if (!state.enrichActive && failedCount > 0) {
+      html += `<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08)">
+        <div class="enrich-inner">
+          <div>
+            <div class="enrich-title" style="color:#e65100">⚠️ ${failedCount} words failed enrichment</div>
+            <div class="enrich-desc">Click to retry only the failed words</div>
+          </div>
+          <button class="enrich-btn enrich-btn-secondary" onclick="retryFailed()" ${!state.apiKey ? 'disabled' : ''}>🔄 Retry Failed</button>
+        </div>
+      </div>`;
+    }
+
+    if (state.enrichActive) {
+      html += `<div style="text-align:right;margin-top:8px"><button class="stop-btn" onclick="stopEnrich()">■ Stop</button></div>`;
+    }
+
+    if (!state.enrichActive && enrichedCount > 0 && unenrichedCount === 0 && failedCount === 0) {
+      html += `<div class="success-banner">✅ All ${enrichedCount} new words enriched successfully</div>`;
+    }
+
+    html += `</div>`;
+  }
+
+  // Filters + search + download
+  const filters = [
+    { key: "all", label: `All (${mr.allMerged.length})` },
+    { key: "matched", label: `Matched (${mr.matched.length})` },
+    { key: "new", label: `New (${mr.newWords.length})` },
+    { key: "unmatched", label: `Not found (${mr.unmatched.length})` },
+    { key: "levelChanged", label: `Level Δ (${mr.levelChanges.length})` },
+  ];
+  if (enrichedCount > 0) filters.push({ key: "enriched", label: `Enriched (${enrichedCount})` });
+  if (failedCount > 0) filters.push({ key: "failed", label: `Failed (${failedCount})` });
+
+  html += `<div class="filter-row">`;
+  for (const f of filters) {
+    html += `<button class="filter-btn${state.filter === f.key ? ' active' : ''}" onclick="setFilter('${f.key}')">${f.label}</button>`;
+  }
+  html += `<div class="spacer"></div>
+    <input type="text" class="search-input" placeholder="Search…" value="${escapeHtml(state.search)}" oninput="setSearch(this.value)" id="searchInput">
+    <button class="download-btn" onclick="download()" title="Download all merged data">⬇ Download All</button>
+    ${mr.newWords.length > 0 ? `<button class="btn" onclick="download(true)" title="Download only new words">⬇ New Only</button>` : ''}
+  </div>`;
+
+  // Table with sortable columns
+  const shown = filtered.slice(0, 300);
+  const columns = [
+    { key: 'chinese', label: 'Chinese' },
+    { key: 'pinyin', label: 'Pinyin' },
+    { key: 'english', label: 'English' },
+    { key: 'french', label: 'French' },
+    { key: 'hskLevel', label: 'HSK 2021' },
+    { key: 'hskLevel2026', label: 'HSK 2026' },
+    { key: 'charType', label: 'Type' },
+    { key: null, label: 'Status' }
+  ];
+
+  html += `<div class="table-wrap"><div class="table-scroll"><table><thead><tr>`;
+  for (const col of columns) {
+    const isSorted = state.sortColumn === col.key;
+    const sortIcon = isSorted ? (state.sortDirection === 'asc' ? '↑' : '↓') : '↕';
+    if (col.key) {
+      html += `<th class="${isSorted ? 'sorted' : ''}" onclick="toggleSort('${col.key}')">${col.label}<span class="sort-icon">${sortIcon}</span></th>`;
+    } else {
+      html += `<th>${col.label}</th>`;
+    }
+  }
+  html += `</tr></thead><tbody>`;
+
+  for (const item of shown) {
+    const isE = item.isNew2026 && state.enrichedMap.has(item.chinese);
+    const isF = state.failedWords.has(item.chinese);
+    const cls = isE ? 'row-enriched' : item.isNew2026 ? 'row-new' : '';
+    const levelChange = item._levelFrom ? `<span class="td-level-change">${item._levelFrom} → ${item._levelTo}</span>` : '';
+
+    html += `<tr class="${cls}">
+      <td class="td-zh">${escapeHtml(item.chinese || item.word || '')}</td>
+      <td style="color:#666">${escapeHtml(item.pinyin) || '—'}</td>
+      <td class="td-en" style="color:${item.english ? '#333' : '#ccc'}">${escapeHtml(item.english) || '—'}</td>
+      <td class="td-en" style="color:${item.french ? '#333' : '#ccc'}">${escapeHtml(item.french) || '—'}</td>
+      <td>${badge(item.hskLevel)}${levelChange}</td>
+      <td>${badge(item.hskLevel2026)}</td>
+      <td style="font-size:10px;color:#aaa">${escapeHtml(item.charType) || '—'}</td>
+      <td>${isE ? '<span class="status-enriched">✦ Enriched</span>' :
+        isF ? '<span class="status-failed">✗ Failed</span>' :
+        item.isNew2026 ? '<span class="status-new">● New</span>' :
+        item.hskLevel2026 === null ? '<span class="status-missing">⚠ Not in 2026</span>' :
+        '<span class="status-ok">✓</span>'}</td>
+    </tr>`;
+  }
+
+  html += `</tbody></table></div>`;
+  if (filtered.length > 300) html += `<div class="table-more">Showing 300 of ${filtered.length.toLocaleString()} — all included in download</div>`;
+  if (filtered.length === 0) html += `<div class="table-empty">No entries match</div>`;
+  html += `</div>`;
+
+  html += `<div class="footer">《国际中文教育中文水平等级标准（2025年修订版）》 · ${HSK_REF.length.toLocaleString()} words · charType from 认读字/书写字 lists</div>`;
+
+  app.innerHTML = html;
+
+  // Restore search input focus if it was focused before
+  if (shouldRestoreFocus) {
+    const newSearchInput = document.getElementById('searchInput');
+    if (newSearchInput) {
+      newSearchInput.focus();
+      // Restore cursor position to end
+      newSearchInput.setSelectionRange(newSearchInput.value.length, newSearchInput.value.length);
+    }
+    shouldRestoreFocus = false;
+  }
+}
+
+function setupDropzone() {
+  const dz = document.getElementById("dropzone");
+  if (!dz) return;
+  dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+  dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("over"); handleFile(e.dataTransfer.files[0]); });
+  dz.addEventListener("click", () => {
+    const i = document.createElement("input"); i.type = "file"; i.accept = ".json";
+    i.onchange = (e) => handleFile(e.target.files[0]); i.click();
+  });
+}
+
+// Global handlers
+window.resetAll = () => setState({
+  currentData: null,
+  fileName: "",
+  filter: "all",
+  search: "",
+  enrichedMap: new Map(),
+  failedWords: new Set(),
+  enrichActive: false,
+  enrichTotal: 0,
+  enrichDone: 0,
+  enrichFailed: 0,
+  enrichErrors: [],
+  duplicates: [],
+  sortColumn: null,
+  sortDirection: 'asc'
+});
+window.toggleLevel = (l) => { const s = new Set(state.selectedLevels); s.has(l) ? s.delete(l) : s.add(l); setState({ selectedLevels: s }); };
+window.setFilter = (f) => setState({ filter: f });
+window.setSearch = (v) => { state.search = v; render(); };
+window.download = download;
+window.updateApiKey = (v) => { state.apiKey = v; sessionStorage.setItem("hsk_api_key", v); };
+window.showEnrichConfirm = () => setState({ showConfirmModal: true });
+window.closeModal = (e) => { if (e.target.classList.contains('modal-overlay')) setState({ showConfirmModal: false }); };
+window.doEnrich = () => startEnrichment(false);
+window.retryFailed = () => startEnrichment(true);
+window.stopEnrich = () => { state.cancelRequested = true; };
+window.toggleSort = (column) => {
+  if (state.sortColumn === column) {
+    setState({ sortDirection: state.sortDirection === 'asc' ? 'desc' : 'asc' });
+  } else {
+    setState({ sortColumn: column, sortDirection: 'asc' });
+  }
+};
+
+// Init
+render();
+</script>
+</body>
+</html>
