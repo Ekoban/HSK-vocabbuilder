@@ -102,6 +102,9 @@ td { padding: 7px 12px; border-bottom: 1px solid #f5f5f5; }
 .status-missing { color: #e65100; font-size: 11px; }
 .status-ok { color: #2e7d32; font-size: 11px; }
 .status-failed { color: #c62828; font-size: 11px; }
+.src-badge { margin-left: 4px; font-size: 10px; vertical-align: middle; cursor: help; }
+.src-cedict { opacity: 0.7; }
+.src-llm { opacity: 0.7; }
 .table-more { padding: 14px; text-align: center; color: #aaa; font-size: 12px; border-top: 1px solid #f0f0f0; }
 .table-empty { padding: 40px; text-align: center; color: #bbb; font-size: 13px; }
 .badge { color: #fff; border-radius: 4px; padding: 1px 5px; font-size: 11px; font-weight: 600; white-space: nowrap; }
@@ -348,7 +351,7 @@ const posMap = {"名":"noun","动":"verb","形":"adjective","副":"adverb","数"
 
 const BATCH_SIZE = 40;
 const FETCH_TIMEOUT = 30000; // 30 seconds
-const MAX_CONCURRENCY = 5;
+const MAX_CONCURRENCY = 30;
 
 // ─── State ───
 let state = {
@@ -372,7 +375,7 @@ let state = {
   duplicates: [],
   showConfirmModal: false,
   // New: Activity tracking
-  concurrency: 3,
+  concurrency: 15,
   activityLog: [],
   batchStatuses: [], // 'pending' | 'running' | 'success' | 'error' | 'partial'
   enrichStartTime: null,
@@ -489,6 +492,8 @@ function computeMerge() {
       if (e) {
         entry.english = e.en || null;
         entry.french = e.fr || null;
+        entry.enSource = e.en_source || null; // 'cedict' or 'llm'
+        entry.traditional = e.trad || null;
         if (e.ipa) entry.ipa = e.ipa; // Use LLM IPA if available
         entry.category = e.cat || entry.category;
         entry.topic = e.topic || null;
@@ -630,6 +635,9 @@ async function startEnrichment(failedOnly = false) {
       switch (msg.type) {
         case 'start':
           addLogEntry('info', `Server ready: <span class="count">${msg.total_batches}</span> batches, <span class="count">${msg.concurrency}</span>x parallel`);
+          if (msg.cedict_found !== undefined) {
+            addLogEntry('info', `📖 CC-CEDICT: <span class="count">${msg.cedict_found}</span> words found · 🤖 LLM needed: <span class="count">${msg.cedict_missing}</span> words`);
+          }
           state.batchStatuses = Array(msg.total_batches).fill('pending');
           renderActivityPanel();
           break;
@@ -652,7 +660,9 @@ async function startEnrichment(failedOnly = false) {
             }
 
             const words = msg.results.slice(0, 3).map(r => r.w).join(', ');
-            addLogEntry('success', `Batch ${msg.batch + 1}: <span class="count">${msg.count}</span> enriched · <span class="word">${words}</span>...`);
+            const modeIcon = msg.mode === 'french_only' ? '📖' : '🤖';
+            const modeLabel = msg.mode === 'french_only' ? 'CEDICT+FR' : 'Full LLM';
+            addLogEntry('success', `${modeIcon} Batch ${msg.batch + 1} (${modeLabel}): <span class="count">${msg.count}</span> enriched · <span class="word">${words}</span>...`);
           } else {
             state.batchStatuses[msg.batch] = 'error';
             errors.push({ batch: msg.batch, error: msg.error });
@@ -684,7 +694,11 @@ async function startEnrichment(failedOnly = false) {
           break;
 
         case 'complete':
-          addLogEntry('complete', `Finished in <span class="count">${(msg.total_time_ms / 1000).toFixed(1)}s</span> · <span class="count">${msg.success_words}</span> enriched · <span class="count">${msg.words_per_second}</span> words/sec`);
+          let completeMsg = `Finished in <span class="count">${(msg.total_time_ms / 1000).toFixed(1)}s</span> · <span class="count">${msg.success_words}</span> enriched · <span class="count">${msg.words_per_second}</span> words/sec`;
+          if (msg.cedict_used !== undefined) {
+            completeMsg += `<br>📖 CEDICT English: <span class="count">${msg.cedict_used}</span> · 🤖 Full LLM: <span class="count">${msg.llm_full}</span>`;
+          }
+          addLogEntry('complete', completeMsg);
 
           // Final state update with enrichedMap to trigger recompute
           setState({
@@ -1008,7 +1022,7 @@ function render() {
       <div class="concurrency-row">
         <span class="concurrency-label">Parallel requests:</span>
         <div class="concurrency-btns">
-          ${[1,2,3,4,5].map(n => `<button class="concurrency-btn${state.concurrency === n ? ' active' : ''}" onclick="setConcurrency(${n})">${n}</button>`).join('')}
+          ${[5,10,15,20,30].map(n => `<button class="concurrency-btn${state.concurrency === n ? ' active' : ''}" onclick="setConcurrency(${n})">${n}</button>`).join('')}
         </div>
         <span class="concurrency-info">${state.concurrency > 1 ? `~${state.concurrency}x faster` : 'Sequential (safest)'}</span>
       </div>
@@ -1101,8 +1115,8 @@ function render() {
     html += `<tr class="${cls}">
       <td class="td-zh">${escapeHtml(item.chinese || item.word || '')}</td>
       <td style="color:#666">${escapeHtml(item.pinyin) || '—'}</td>
-      <td class="td-en" style="color:${item.english ? '#333' : '#ccc'}">${escapeHtml(item.english) || '—'}</td>
-      <td class="td-en" style="color:${item.french ? '#333' : '#ccc'}">${escapeHtml(item.french) || '—'}</td>
+      <td class="td-en" style="color:${item.english ? '#333' : '#ccc'}">${escapeHtml(item.english) || '—'}${item.enSource === 'cedict' ? '<span class="src-badge src-cedict" title="CC-CEDICT">📖</span>' : item.enSource === 'llm' ? '<span class="src-badge src-llm" title="LLM">🤖</span>' : ''}</td>
+      <td class="td-en" style="color:${item.french ? '#333' : '#ccc'}">${escapeHtml(item.french) || '—'}${item.french ? '<span class="src-badge src-llm" title="LLM">🤖</span>' : ''}</td>
       <td>${badge(item.hskLevel)}${levelChange}</td>
       <td>${badge(item.hskLevel2026)}</td>
       <td style="font-size:10px;color:#aaa">${escapeHtml(item.charType) || '—'}</td>
